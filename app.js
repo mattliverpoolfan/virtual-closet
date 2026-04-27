@@ -879,7 +879,7 @@ function readImageAsBlob(file) {
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const maxSide = 900;
+      const maxSide = 600;
       let w = img.naturalWidth, h = img.naturalHeight;
       if (Math.max(w, h) > maxSide) {
         const ratio = maxSide / Math.max(w, h);
@@ -911,6 +911,12 @@ async function hasWebGPU() {
   } catch { return false; }
 }
 
+// Detect iOS Safari — force CPU-only to avoid WebGPU+WASM dual-runtime memory blowup
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.userAgent.includes('Mac') && 'ontouchend' in document);
+}
+
 async function removeBackground(blob, onProgress) {
   if (!_bgRemoveModule) {
     console.log('[bg] 開始載入 imgly 模組');
@@ -918,9 +924,10 @@ async function removeBackground(blob, onProgress) {
     _bgRemoveModule = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.6.0/+esm');
     console.log('[bg] imgly 模組載入完成', Object.keys(_bgRemoveModule || {}));
   }
-  const useGPU = await hasWebGPU();
-  console.log(`[bg] WebGPU 可用: ${useGPU}`);
-  onProgress?.(useGPU ? '去背中 (GPU 加速)...' : '去背中...');
+  const ios = isIOS();
+  const useGPU = !ios && await hasWebGPU();
+  console.log(`[bg] iOS=${ios}, useGPU=${useGPU} (iOS 強制 CPU-only 避免雙 runtime)`);
+  onProgress?.(useGPU ? '去背中 (GPU 加速)...' : '去背中 (CPU)...');
 
   const result = await _bgRemoveModule.removeBackground(blob, {
     model: 'isnet_quint8',
