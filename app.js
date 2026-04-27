@@ -154,6 +154,9 @@ async function init() {
   state.categories.sort((a, b) => a.sortOrder - b.sortOrder);
   state.items.sort((a, b) => new Date(b.purchaseDate) - new Date(a.purchaseDate));
 
+  // Restore add-item form if page was reloaded during bg removal
+  restoreDraft();
+
   renderApp();
 }
 
@@ -568,6 +571,7 @@ async function handleClick(e) {
       renderApp();
       break;
     case 'back-to-closet':
+      clearDraft();
       state.editingItem = null;
       state.currentView = 'closet';
       renderApp();
@@ -686,7 +690,23 @@ async function handleImageSelected(e) {
   if (!file) return;
   collectFormIntoEditingItem();
 
-  const blob = await readImageAsBlob(file);
+  let blob;
+  try {
+    blob = await readImageAsBlob(file);
+  } catch (err) {
+    showToast('圖片讀取失敗：' + err.message, true);
+    return;
+  }
+
+  // 1. Save original image immediately — survives bg removal crash
+  const imageID = state.editingItem?.imageID || uuid();
+  await dbPut('images', blob, imageID);
+  state.imageCache.delete(imageID);
+  if (!state.editingItem) state.editingItem = {};
+  state.editingItem.imageID = imageID;
+
+  // 2. Persist draft to localStorage so page reload can restore it
+  saveDraft();
 
   const processing = $('#processing');
   const processingText = $('#processing-text');
@@ -695,44 +715,76 @@ async function handleImageSelected(e) {
 
   try {
     const processed = await removeBackground(blob, (progress) => {
-      if (processingText) processingText.textContent = progress;
+      const el = $('#processing-text');
+      if (el) el.textContent = progress;
     });
-    // Save image to DB with new ID
-    const imageID = state.editingItem?.imageID || uuid();
+    // Replace with bg-removed version
     await dbPut('images', processed, imageID);
-    state.imageCache.delete(imageID); // invalidate cache
-    if (!state.editingItem) state.editingItem = {};
-    state.editingItem.imageID = imageID;
+    state.imageCache.delete(imageID);
+    clearDraft();
     renderApp();
   } catch (err) {
     console.error('去背失敗:', err);
     showToast('去背失敗，使用原圖', true);
-    const imageID = state.editingItem?.imageID || uuid();
-    await dbPut('images', blob, imageID);
-    state.imageCache.delete(imageID);
-    if (!state.editingItem) state.editingItem = {};
-    state.editingItem.imageID = imageID;
+    // Original image already saved — just render
+    clearDraft();
     renderApp();
   } finally {
-    if (processing) processing.classList.add('hidden');
+    const el = $('#processing');
+    if (el) el.classList.add('hidden');
   }
 }
 
-async function readImageAsBlob(file) {
-  // Strip EXIF orientation by drawing into canvas
-  const bitmap = await createImageBitmap(file);
-  // Limit size to avoid huge files (max 1500px on long side)
-  const maxSide = 1500;
-  let { width, height } = bitmap;
-  if (Math.max(width, height) > maxSide) {
-    const ratio = maxSide / Math.max(width, height);
-    width = Math.round(width * ratio);
-    height = Math.round(height * ratio);
-  }
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  return await canvas.convertToBlob({ type: 'image/png' });
+// ===== Draft Persistence (survives iOS Safari page reload) =====
+function saveDraft() {
+  if (!state.editingItem) return;
+  try {
+    localStorage.setItem('vc-draft', JSON.stringify(state.editingItem));
+  } catch {}
+}
+
+function clearDraft() {
+  try { localStorage.removeItem('vc-draft'); } catch {}
+}
+
+function restoreDraft() {
+  try {
+    const raw = localStorage.getItem('vc-draft');
+    if (!raw) return false;
+    const draft = JSON.parse(raw);
+    if (!draft || !draft.imageID) return false;
+    state.editingItem = draft;
+    state.currentView = 'add';
+    return true;
+  } catch { return false; }
+}
+
+function readImageAsBlob(file) {
+  // Use HTMLCanvasElement for maximum iOS compatibility
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const maxSide = 1200;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (Math.max(w, h) > maxSide) {
+        const ratio = maxSide / Math.max(w, h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error('canvas.toBlob failed'));
+      }, 'image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')); };
+    img.src = objectUrl;
+  });
 }
 
 let _bgRemoveModule = null;
@@ -755,13 +807,13 @@ async function removeBackground(blob, onProgress) {
   onProgress?.(useGPU ? '去背中 (GPU 加速)...' : '去背中...');
 
   const result = await _bgRemoveModule.removeBackground(blob, {
-    // Smaller, faster model — quality is still very good for clothing
     model: 'isnet_quint8',
     device: useGPU ? 'gpu' : 'cpu',
+    // Run in Web Worker to isolate memory from main thread
+    proxyToWorker: true,
     progress: (key, current, total) => {
       if (total) {
         const pct = Math.round((current / total) * 100);
-        // 'fetch' = downloading model files; 'compute' = processing image
         if (key && key.includes('fetch')) {
           onProgress?.(`下載模型 ${pct}%`);
         } else {
@@ -814,6 +866,7 @@ async function saveItem() {
   }
 
   state.items.sort((a, b) => new Date(b.purchaseDate) - new Date(a.purchaseDate));
+  clearDraft();
   state.editingItem = null;
   state.currentView = 'closet';
   showToast(existing ? '已更新' : '已儲存');
