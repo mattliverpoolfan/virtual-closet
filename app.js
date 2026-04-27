@@ -3,6 +3,32 @@
 // ============================================================
 import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
 
+// ===== Debug Log Capture (in-app console for iOS) =====
+const debugLogs = [];
+const MAX_LOGS = 200;
+function pushLog(level, args) {
+  const ts = new Date().toLocaleTimeString('zh-TW', { hour12: false }) + '.' + String(Date.now() % 1000).padStart(3, '0');
+  const text = args.map(a => {
+    if (a instanceof Error) return a.stack || a.message;
+    if (typeof a === 'object') {
+      try { return JSON.stringify(a); } catch { return String(a); }
+    }
+    return String(a);
+  }).join(' ');
+  debugLogs.push({ ts, level, text });
+  if (debugLogs.length > MAX_LOGS) debugLogs.shift();
+}
+['log', 'info', 'warn', 'error'].forEach(level => {
+  const orig = console[level].bind(console);
+  console[level] = (...args) => { pushLog(level, args); orig(...args); };
+});
+window.addEventListener('error', (e) => {
+  pushLog('error', [`[onerror] ${e.message}`, `at ${e.filename}:${e.lineno}:${e.colno}`, e.error?.stack || '']);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  pushLog('error', ['[unhandledrejection]', e.reason?.stack || e.reason || 'unknown']);
+});
+
 // ===== Constants =====
 const SEASONS = ['春&秋', '夏', '冬'];
 const STATUSES = ['堪用', '淘汰'];
@@ -187,6 +213,7 @@ function renderApp() {
   else if (state.currentView === 'detail') app.innerHTML = renderDetail();
   else if (state.currentView === 'settings') app.innerHTML = renderSettings();
   else if (state.currentView === 'categories') app.innerHTML = renderCategories();
+  else if (state.currentView === 'debug') app.innerHTML = renderDebug();
   bindEvents();
   if (state.currentView === 'closet') hydrateClosetImages();
   if (state.currentView === 'detail') hydrateDetailImage();
@@ -384,6 +411,7 @@ function renderSettings() {
             <input type="file" accept=".zip,application/zip" id="import-input" hidden/>
           </label>
           <button class="settings-row" data-action="open-categories"><span class="ico">📂</span>管理分類</button>
+          <button class="settings-row" data-action="open-debug"><span class="ico">🐞</span>查看 Log (Debug)</button>
           <div class="settings-note">
             匯入時會與現有資料合併（同 ID 或同名分類會合併，不會重複）。<br/>
             支援從原 Swift App 匯出的備份（將原始 App 匯出的資料夾壓縮成 .zip 即可）。
@@ -402,6 +430,43 @@ function renderSettings() {
           建議定期匯出備份作為保險。
         </div>
         <div style="height: 24px;"></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDebug() {
+  const logs = debugLogs.slice().reverse(); // newest first
+  const ua = navigator.userAgent;
+  const gpu = navigator.gpu ? '✅ WebGPU' : '❌ no WebGPU';
+  const head = `
+    <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.5;word-break:break-all;">
+      <div>${escapeHTML(ua)}</div>
+      <div>${gpu} · IndexedDB: ${'indexedDB' in window ? '✅' : '❌'} · 圖片快取: ${state.imageCache.size}</div>
+    </div>
+  `;
+  const items = logs.length === 0
+    ? '<div style="color:#666;padding:20px;text-align:center;">尚無 log</div>'
+    : logs.map(l => {
+        const color = l.level === 'error' ? '#ff5050' : l.level === 'warn' ? '#ffb84d' : '#aaa';
+        return `<div style="font-family:Menlo,monospace;font-size:11px;color:${color};padding:6px 0;border-bottom:1px solid #1a1a1a;word-break:break-all;white-space:pre-wrap;">
+          <span style="color:#555;">${l.ts}</span> [${l.level}] ${escapeHTML(l.text)}
+        </div>`;
+      }).join('');
+  return `
+    <div class="view active">
+      <div class="header">
+        <button class="icon-btn" data-action="back-to-settings">‹</button>
+        <div class="header-title">Debug Log</div>
+        <button class="modal-link" data-action="copy-debug">複製</button>
+      </div>
+      <div class="scroll-content">
+        ${head}
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <button class="action-btn secondary" data-action="refresh-debug" style="flex:1;">重新整理</button>
+          <button class="action-btn secondary" data-action="clear-debug" style="flex:1;">清空</button>
+        </div>
+        ${items}
       </div>
     </div>
   `;
@@ -588,6 +653,31 @@ async function handleClick(e) {
       state.currentView = state.editingItem ? 'add' : 'settings';
       renderApp();
       break;
+    case 'open-debug':
+      state.currentView = 'debug';
+      renderApp();
+      break;
+    case 'back-to-settings':
+      state.currentView = 'settings';
+      renderApp();
+      break;
+    case 'refresh-debug':
+      renderApp();
+      break;
+    case 'clear-debug':
+      debugLogs.length = 0;
+      renderApp();
+      break;
+    case 'copy-debug': {
+      const text = debugLogs.map(l => `${l.ts} [${l.level}] ${l.text}`).join('\n');
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('已複製到剪貼簿');
+      } catch (err) {
+        showToast('複製失敗：' + err.message, true);
+      }
+      break;
+    }
     case 'open-filter':
       openFilterModal();
       break;
