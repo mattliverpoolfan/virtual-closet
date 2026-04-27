@@ -1,0 +1,7 @@
+# Cloudflare Pages — 啟用 Cross-Origin Isolation
+# 這允許 SharedArrayBuffer / 多執行緒 WASM，讓去背模型用更少記憶體跑
+# (GitHub Pages 不支援這個檔案，會被忽略，無副作用)
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: cross-origin
