@@ -766,7 +766,7 @@ function readImageAsBlob(file) {
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const maxSide = 1200;
+      const maxSide = 900;
       let w = img.naturalWidth, h = img.naturalHeight;
       if (Math.max(w, h) > maxSide) {
         const ratio = maxSide / Math.max(w, h);
@@ -809,8 +809,6 @@ async function removeBackground(blob, onProgress) {
   const result = await _bgRemoveModule.removeBackground(blob, {
     model: 'isnet_quint8',
     device: useGPU ? 'gpu' : 'cpu',
-    // Run in Web Worker to isolate memory from main thread
-    proxyToWorker: true,
     progress: (key, current, total) => {
       if (total) {
         const pct = Math.round((current / total) * 100);
