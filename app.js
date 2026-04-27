@@ -4,8 +4,15 @@
 import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
 
 // ===== Debug Log Capture (in-app console for iOS) =====
-const debugLogs = [];
-const MAX_LOGS = 200;
+// Persist to localStorage so logs survive page reload (iOS Safari kills tab on OOM)
+const LOG_KEY = 'vc-debug-logs';
+const MAX_LOGS = 300;
+let debugLogs = [];
+try { debugLogs = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch { debugLogs = []; }
+let _logFlushTimer = null;
+function flushLogs() {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(debugLogs)); } catch {}
+}
 function pushLog(level, args) {
   const ts = new Date().toLocaleTimeString('zh-TW', { hour12: false }) + '.' + String(Date.now() % 1000).padStart(3, '0');
   const text = args.map(a => {
@@ -17,7 +24,11 @@ function pushLog(level, args) {
   }).join(' ');
   debugLogs.push({ ts, level, text });
   if (debugLogs.length > MAX_LOGS) debugLogs.shift();
+  // Synchronous flush so logs survive page kill
+  flushLogs();
 }
+// Mark startup so we can see if page reloaded mid-flow
+pushLog('info', [`=== app boot ===`]);
 ['log', 'info', 'warn', 'error'].forEach(level => {
   const orig = console[level].bind(console);
   console[level] = (...args) => { pushLog(level, args); orig(...args); };
@@ -666,6 +677,7 @@ async function handleClick(e) {
       break;
     case 'clear-debug':
       debugLogs.length = 0;
+      flushLogs();
       renderApp();
       break;
     case 'copy-debug': {
@@ -778,45 +790,56 @@ function collectFormIntoEditingItem() {
 async function handleImageSelected(e) {
   const file = e.target.files?.[0];
   if (!file) return;
+  console.log(`[step 1] 選了照片: ${file.name || 'unnamed'} (${(file.size/1024/1024).toFixed(2)} MB, type=${file.type})`);
   collectFormIntoEditingItem();
 
   let blob;
   try {
     blob = await readImageAsBlob(file);
+    console.log(`[step 2] 縮圖完成，大小 ${(blob.size/1024/1024).toFixed(2)} MB`);
   } catch (err) {
+    console.error('[step 2 失敗] 讀圖錯誤', err);
     showToast('圖片讀取失敗：' + err.message, true);
     return;
   }
 
-  // 1. Save original image immediately — survives bg removal crash
   const imageID = state.editingItem?.imageID || uuid();
-  await dbPut('images', blob, imageID);
+  try {
+    await dbPut('images', blob, imageID);
+    console.log(`[step 3] 原圖已存入 IndexedDB (${imageID.slice(0,8)})`);
+  } catch (err) {
+    console.error('[step 3 失敗] 存原圖錯誤', err);
+    showToast('儲存圖片失敗：' + err.message, true);
+    return;
+  }
   state.imageCache.delete(imageID);
   if (!state.editingItem) state.editingItem = {};
   state.editingItem.imageID = imageID;
 
-  // 2. Persist draft to localStorage so page reload can restore it
   saveDraft();
+  console.log('[step 4] draft 已存 localStorage');
 
   const processing = $('#processing');
   const processingText = $('#processing-text');
   if (processing) processing.classList.remove('hidden');
   if (processingText) processingText.textContent = '載入去背模型...';
 
+  console.log('[step 5] 開始去背流程');
   try {
     const processed = await removeBackground(blob, (progress) => {
       const el = $('#processing-text');
       if (el) el.textContent = progress;
     });
-    // Replace with bg-removed version
+    console.log(`[step 6] 去背完成，輸出大小 ${(processed.size/1024/1024).toFixed(2)} MB`);
     await dbPut('images', processed, imageID);
+    console.log('[step 7] 已將去背圖存回 IndexedDB');
     state.imageCache.delete(imageID);
     clearDraft();
     renderApp();
+    console.log('[step 8] renderApp 完成');
   } catch (err) {
-    console.error('去背失敗:', err);
+    console.error('[去背流程失敗]', err?.message || err, err?.stack || '');
     showToast('去背失敗，使用原圖', true);
-    // Original image already saved — just render
     clearDraft();
     renderApp();
   } finally {
@@ -890,10 +913,13 @@ async function hasWebGPU() {
 
 async function removeBackground(blob, onProgress) {
   if (!_bgRemoveModule) {
+    console.log('[bg] 開始載入 imgly 模組');
     onProgress?.('下載去背模型 (首次約 40MB，會被瀏覽器快取)...');
     _bgRemoveModule = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.6.0/+esm');
+    console.log('[bg] imgly 模組載入完成', Object.keys(_bgRemoveModule || {}));
   }
   const useGPU = await hasWebGPU();
+  console.log(`[bg] WebGPU 可用: ${useGPU}`);
   onProgress?.(useGPU ? '去背中 (GPU 加速)...' : '去背中...');
 
   const result = await _bgRemoveModule.removeBackground(blob, {
