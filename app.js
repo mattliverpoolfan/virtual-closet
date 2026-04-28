@@ -799,7 +799,8 @@ function collectFormIntoEditingItem() {
 async function handleImageSelected(e) {
   const file = e.target.files?.[0];
   if (!file) return;
-  console.log(`[step 1] 選了照片: ${file.name || 'unnamed'} (${(file.size/1024/1024).toFixed(2)} MB, type=${file.type})`);
+  const fromLibrary = e.target.id === 'file-input-library';
+  console.log(`[step 1] 選了照片: ${file.name || 'unnamed'} (${(file.size/1024/1024).toFixed(2)} MB, type=${file.type}, 來源=${fromLibrary ? '相簿' : '相機'})`);
   collectFormIntoEditingItem();
 
   let blob;
@@ -827,6 +828,14 @@ async function handleImageSelected(e) {
 
   saveDraft();
   console.log('[step 4] draft 已存 localStorage');
+
+  // 從相簿選的圖：跳過去背，直接顯示
+  if (fromLibrary) {
+    console.log('[skip] 相簿來源圖片不去背，直接使用原圖');
+    clearDraft();
+    renderApp();
+    return;
+  }
 
   const processing = $('#processing');
   const processingText = $('#processing-text');
