@@ -226,6 +226,9 @@ function renderApp() {
   else if (state.currentView === 'categories') app.innerHTML = renderCategories();
   else if (state.currentView === 'debug') app.innerHTML = renderDebug();
   bindEvents();
+  // Reset scroll to top after every re-render (so detail/edit views always start at top)
+  window.scrollTo(0, 0);
+  document.querySelectorAll('.scroll-content').forEach(el => { el.scrollTop = 0; });
   if (state.currentView === 'closet') hydrateClosetImages();
   if (state.currentView === 'detail') hydrateDetailImage();
   if (state.currentView === 'add') hydrateEditImage();
@@ -335,7 +338,7 @@ function renderAddEdit() {
       <div class="header">
         <button class="icon-btn" data-action="back-to-closet">‹</button>
         <div class="header-title">${editing ? '編輯項目' : '添加項目'}</div>
-        <button class="modal-link" data-action="back-to-closet">取消</button>
+        <button class="modal-link bold" data-action="save-item">完成</button>
       </div>
       <div class="scroll-content">
         <div class="form-section">
@@ -387,7 +390,7 @@ function renderAddEdit() {
           </div>
         </div>
 
-        <button class="action-btn" data-action="save-item">${editing ? 'Update Item' : 'Save Item'}</button>
+        <button class="action-btn secondary" data-action="back-to-closet">取消</button>
         ${editing ? '<button class="action-btn danger" style="margin-top:12px;" data-action="delete-item">刪除這件</button>' : ''}
         <div style="height: 32px;"></div>
       </div>
