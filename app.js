@@ -349,8 +349,12 @@ function renderAddEdit() {
               : `
                 <div class="photo-buttons">
                   <label class="photo-button">
-                    <span class="ico">📷</span><span>拍照 / 選圖</span>
+                    <span class="ico">📷</span><span>拍照</span>
                     <input type="file" accept="image/*" capture="environment" id="file-input" hidden/>
+                  </label>
+                  <label class="photo-button green">
+                    <span class="ico">🖼️</span><span>從相簿選擇</span>
+                    <input type="file" accept="image/*" id="file-input-library" hidden/>
                   </label>
                 </div>
               `}
@@ -613,6 +617,8 @@ function bindEvents() {
 
   const fileInput = $('#file-input');
   if (fileInput) fileInput.onchange = handleImageSelected;
+  const fileInputLib = $('#file-input-library');
+  if (fileInputLib) fileInputLib.onchange = handleImageSelected;
 
   const importInput = $('#import-input');
   if (importInput) importInput.onchange = handleImportFile;
