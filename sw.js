@@ -1,8 +1,8 @@
 // Service Worker — 提供離線支援
-// 策略：app shell (HTML/CSS/JS) 採 stale-while-revalidate
+// 策略：app shell (HTML/CSS/JS) 採 network-first (有網一定拿最新版，沒網才用快取)
 // CDN 模組與去背模型：cache-first（首次下載後永久離線可用）
 
-const CACHE_VERSION = 'vc-v1';
+const CACHE_VERSION = 'vc-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -35,18 +35,15 @@ self.addEventListener('fetch', (event) => {
   const isSameOrigin = url.origin === self.location.origin;
 
   if (isSameOrigin) {
-    // Stale-while-revalidate for app shell
+    // Network-first for app shell — 有網路時永遠拿最新版，沒網才退回快取
     event.respondWith(
-      caches.match(req).then((cached) => {
-        const fetchPromise = fetch(req).then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_VERSION).then((c) => c.put(req, clone));
-          }
-          return res;
-        }).catch(() => cached);
-        return cached || fetchPromise;
-      })
+      fetch(req).then((res) => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE_VERSION).then((c) => c.put(req, clone));
+        }
+        return res;
+      }).catch(() => caches.match(req))
     );
   } else if (isCDN) {
     // Cache-first for CDN (libraries + ML model)
