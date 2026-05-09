@@ -2,7 +2,7 @@
 // 策略：app shell (HTML/CSS/JS) 採 network-first (有網一定拿最新版，沒網才用快取)
 // CDN 模組與去背模型：cache-first（首次下載後永久離線可用）
 
-const CACHE_VERSION = 'vc-v2';
+const CACHE_VERSION = 'vc-v3';
 const APP_SHELL = [
   './',
   './index.html',
