@@ -372,9 +372,6 @@ function renderAddEdit() {
           <div class="form-row"><label>類型</label>
             <select id="f-category">${catOpts}</select>
           </div>
-          <div class="form-row"><label>&nbsp;</label>
-            <button class="modal-link" data-action="open-categories">管理分類 ›</button>
-          </div>
           <div class="form-row"><label>風格</label>
             <input type="text" id="f-style" value="${escapeHTML(it.style)}" placeholder="例：Casual"/>
           </div>
