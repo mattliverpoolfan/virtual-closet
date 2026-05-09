@@ -372,7 +372,6 @@ async function hydrateEditImage() {
 }
 
 function renderSettings() {
-  const itemCount = state.items.length;
   return `
     <div class="view active">
       <div class="header">
@@ -393,11 +392,6 @@ function renderSettings() {
             匯入時會與現有資料合併（同 ID 或同名分類會合併，不會重複）。<br/>
             支援從原 Swift App 匯出的備份（將原始 App 匯出的資料夾壓縮成 .zip 即可）。
           </div>
-        </div>
-
-        <div class="form-section">
-          <h3>關於 (About)</h3>
-          <div class="form-row"><label>衣物總數</label><span>${itemCount}</span></div>
         </div>
 
         <div class="settings-note">
