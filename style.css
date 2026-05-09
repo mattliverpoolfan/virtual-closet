@@ -409,3 +409,10 @@ input, textarea, select { font-family: inherit; }
 }
 
 .hidden { display: none !important; }
+
+.item-count-bar {
+  padding: 4px 16px 0;
+  font-size: 13px;
+  color: #888;
+  text-align: right;
+}

@@ -267,6 +267,7 @@ function renderCloset() {
         </div>
         <button class="filter-btn" data-action="open-filter" aria-label="篩選">≡</button>
       </div>
+      <div class="item-count-bar" id="item-count-bar">${items.length} 件</div>
       ${empty}
       <div class="grid">${cells}</div>
     </div>
@@ -412,7 +413,6 @@ async function hydrateEditImage() {
 
 function renderSettings() {
   const itemCount = state.items.length;
-  const catCount = state.categories.length;
   return `
     <div class="view active">
       <div class="header">
@@ -438,9 +438,7 @@ function renderSettings() {
 
         <div class="form-section">
           <h3>關於 (About)</h3>
-          <div class="form-row"><label>版本</label><span>1.0.0 (PWA)</span></div>
           <div class="form-row"><label>衣物總數</label><span>${itemCount}</span></div>
-          <div class="form-row"><label>分類總數</label><span>${catCount}</span></div>
         </div>
 
         <div class="settings-note">
@@ -611,6 +609,8 @@ function bindEvents() {
           `;
         }).join('');
         hydrateClosetImages();
+        const bar = $('#item-count-bar');
+        if (bar) bar.textContent = items.length + ' 件';
       }
     };
   }
