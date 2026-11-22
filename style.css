@@ -614,6 +614,23 @@ ul { list-style: none; }
   letter-spacing: 0.4px;
   padding-left: 2px;
 }
+/* Autocomplete suggestions under brand / style inputs */
+.suggest-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -2px 0 10px;
+  padding: 0 4px;
+}
+.chip.suggest {
+  min-height: 40px;
+  padding: 8px 16px;
+  background: rgba(179, 0, 107, 0.2);
+  color: var(--accent);
+  border: 1px solid rgba(255, 95, 174, 0.35);
+}
+.chip.suggest:active { background: var(--brand); color: #fff; }
+
 .multi-hint { font-size: 11px; color: var(--text-3); margin-left: 6px; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {

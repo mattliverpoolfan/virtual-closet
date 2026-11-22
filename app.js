@@ -576,11 +576,13 @@ function renderAddEdit() {
             <div class="select-wrap"><select id="f-category">${catOpts}<option value="__new__">＋ 新增分類…</option></select></div>
           </div>
           <div class="form-row"><label for="f-style">風格</label>
-            <input type="text" id="f-style" value="${escapeHTML(it.style)}" placeholder="例：Casual"/>
+            <input type="text" id="f-style" value="${escapeHTML(it.style)}" placeholder="例：Casual" autocomplete="off"/>
           </div>
+          <div class="suggest-row hidden" id="sg-f-style" aria-label="風格建議"></div>
           <div class="form-row"><label for="f-brand">品牌</label>
-            <input type="text" id="f-brand" value="${escapeHTML(it.brand)}" placeholder="例：Uniqlo"/>
+            <input type="text" id="f-brand" value="${escapeHTML(it.brand)}" placeholder="例：Uniqlo" autocomplete="off"/>
           </div>
+          <div class="suggest-row hidden" id="sg-f-brand" aria-label="品牌建議"></div>
           <div class="form-row"><label for="f-date">購買日期</label>
             <input type="date" id="f-date" value="${dateInputValue(it.purchaseDate)}"/>
           </div>
@@ -992,6 +994,64 @@ function collectFormIntoEditingItem() {
   state.editingItem = ed;
 }
 
+// ===== Autocomplete suggestions (brand / style) =====
+const SUGGEST_FIELDS = { 'f-brand': 'brand', 'f-style': 'style' };
+
+// Previously entered values for a field, best matches first.
+// Prefix matches rank above substring matches; ties go to the most-used value.
+function suggestionsFor(field, typed) {
+  const counts = new Map();
+  for (const it of state.items) {
+    const v = (it[field] || '').trim();
+    if (v) counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  const t = typed.trim();
+  const q = t.toLowerCase();
+  const byUse = (a, b) => b.n - a.n || a.v.localeCompare(b.v, 'zh-Hant');
+
+  let list = [...counts].map(([v, n]) => ({ v, n }));
+  if (q) {
+    list = list
+      .filter(x => x.v !== t && x.v.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const pa = a.v.toLowerCase().startsWith(q) ? 0 : 1;
+        const pb = b.v.toLowerCase().startsWith(q) ? 0 : 1;
+        return pa - pb || byUse(a, b);
+      });
+  } else {
+    list.sort(byUse);
+  }
+  return list.slice(0, 8).map(x => x.v);
+}
+
+function renderSuggestions(input) {
+  const box = $('#sg-' + input.id);
+  if (!box) return;
+  const list = suggestionsFor(SUGGEST_FIELDS[input.id], input.value);
+  box.innerHTML = list.map(v =>
+    `<button type="button" class="chip suggest" data-action="pick-suggestion" data-target="${input.id}" data-value="${escapeHTML(v)}">${escapeHTML(v)}</button>`
+  ).join('');
+  box.classList.toggle('hidden', list.length === 0);
+}
+
+function hideSuggestions(input) {
+  const box = $('#sg-' + input.id);
+  if (box) box.classList.add('hidden');
+}
+
+function bindSuggestions() {
+  for (const id of Object.keys(SUGGEST_FIELDS)) {
+    const input = $('#' + id);
+    if (!input) continue;
+    input.oninput = () => renderSuggestions(input);
+    input.onfocus = () => renderSuggestions(input);
+    // Delay so a tap on a suggestion still lands before the list disappears
+    input.onblur = () => setTimeout(() => hideSuggestions(input), 200);
+  }
+  // Desktop: mousedown on a chip would blur the input and hide the list first
+  $$('.suggest-row').forEach(box => { box.onmousedown = (e) => e.preventDefault(); });
+}
+
 // ===== Event Binding =====
 function bindEvents() {
   document.body.onclick = handleClick;
@@ -1020,6 +1080,8 @@ function bindEvents() {
 
   const autoCut = $('#f-autocut');
   if (autoCut) autoCut.onchange = (e) => localStorage.setItem(LS.autoCutout, e.target.checked ? '1' : '0');
+
+  bindSuggestions();
 
   const catSelect = $('#f-category');
   if (catSelect) {
@@ -1078,6 +1140,14 @@ async function handleClick(e) {
     case 'back':
       await goBack();
       break;
+
+    case 'pick-suggestion': {
+      const input = $('#' + target.dataset.target);
+      if (!input) break;
+      input.value = target.dataset.value;
+      hideSuggestions(input);
+      break;
+    }
 
     case 'open-add':
       state.editingItem = null;
