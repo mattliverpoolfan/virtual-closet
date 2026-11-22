@@ -93,13 +93,15 @@ const state = {
   items: [],
   categories: [],
   imageCache: new Map(), // imageID -> object URL
+  // Each dimension holds the selected values; an empty array means "all".
+  // Semantics: OR within a dimension, AND across dimensions.
   filter: {
     search: '',
-    season: null,
-    categoryID: null,
-    status: null,
-    brand: null,
-    style: null,
+    season: [],
+    categoryID: [],
+    status: [],
+    brand: [],
+    style: [],
   },
   sort: localStorage.getItem(LS.sort) || 'date-desc',
   currentView: 'closet',
@@ -250,15 +252,31 @@ function sortItems() {
   state.items.sort(fn);
 }
 
+const FILTER_KEYS = ['season', 'categoryID', 'status', 'brand', 'style'];
+
+function clearAllFilters() {
+  for (const k of FILTER_KEYS) state.filter[k] = [];
+  state.filter.search = '';
+}
+
+function toggleFilterValue(key, value) {
+  const cur = state.filter[key];
+  const norm = key === 'categoryID' ? normalizeId : (v => v);
+  const idx = cur.findIndex(v => norm(v) === norm(value));
+  if (idx >= 0) cur.splice(idx, 1);
+  else cur.push(value);
+}
+
 function getFilteredItems() {
   const f = state.filter;
   const q = f.search.trim().toLowerCase();
+  const catSet = new Set(f.categoryID.map(normalizeId));
   return state.items.filter(it => {
-    if (f.season && it.season !== f.season) return false;
-    if (f.categoryID && normalizeId(it.categoryID) !== normalizeId(f.categoryID)) return false;
-    if (f.status && it.status !== f.status) return false;
-    if (f.brand && it.brand !== f.brand) return false;
-    if (f.style && it.style !== f.style) return false;
+    if (f.season.length && !f.season.includes(it.season)) return false;
+    if (catSet.size && !catSet.has(normalizeId(it.categoryID))) return false;
+    if (f.status.length && !f.status.includes(it.status)) return false;
+    if (f.brand.length && !f.brand.includes(it.brand)) return false;
+    if (f.style.length && !f.style.includes(it.style)) return false;
     if (q) {
       const cat = categoryOf(it);
       const haystack = [it.brand, it.style, it.notes, cat?.name].filter(Boolean).join(' ').toLowerCase();
@@ -271,14 +289,16 @@ function getFilteredItems() {
 function activeFilters() {
   const f = state.filter;
   const out = [];
-  if (f.season) out.push({ key: 'season', label: f.season });
-  if (f.categoryID) {
-    const c = state.categories.find(x => normalizeId(x.id) === normalizeId(f.categoryID));
-    out.push({ key: 'categoryID', label: c?.name || '分類' });
+  for (const key of FILTER_KEYS) {
+    for (const value of f[key]) {
+      let label = value;
+      if (key === 'categoryID') {
+        const c = state.categories.find(x => normalizeId(x.id) === normalizeId(value));
+        label = c?.name || '分類';
+      }
+      out.push({ key, value, label });
+    }
   }
-  if (f.status) out.push({ key: 'status', label: f.status });
-  if (f.brand) out.push({ key: 'brand', label: f.brand });
-  if (f.style) out.push({ key: 'style', label: f.style });
   return out;
 }
 
@@ -418,7 +438,7 @@ function renderCloset() {
 
   const chipsRow = filters.length
     ? `<div class="active-filters">
-         ${filters.map(f => `<button class="chip removable" data-action="remove-filter" data-key="${f.key}">${escapeHTML(f.label)}<span class="x">✕</span></button>`).join('')}
+         ${filters.map(f => `<button class="chip removable" data-action="remove-filter" data-key="${f.key}" data-value="${escapeHTML(f.value)}" aria-label="移除篩選 ${escapeHTML(f.label)}">${escapeHTML(f.label)}<span class="x">✕</span></button>`).join('')}
          <button class="chip clear-all" data-action="clear-filter">全部清除</button>
        </div>`
     : '';
@@ -818,7 +838,7 @@ function openFilterSheet() {
 
   const section = (title, key, values, labelFn = v => v, valueFn = v => v) => `
     <div class="filter-section">
-      <h3>${title}</h3>
+      <h3>${title} <span class="multi-hint">可複選</span></h3>
       <div class="chip-row">
         ${chip('全部', key, '')}
         ${values.map(v => chip(labelFn(v), key, valueFn(v))).join('')}
@@ -830,7 +850,7 @@ function openFilterSheet() {
       <div class="sheet-header">
         <button class="text-btn" data-action="clear-filter">全部清除</button>
         <div class="sheet-title">篩選與排序</div>
-        <button class="text-btn bold" data-action="close-sheet">完成</button>
+        <button class="text-btn bold" id="sheet-done" data-action="close-sheet">完成</button>
       </div>
       <div class="sheet-content">
         <div class="filter-section">
@@ -856,12 +876,21 @@ function openFilterSheet() {
 // Update chip active states in place — keeps the sheet's scroll position
 function syncSheetChips() {
   $$('#overlay [data-filter-key]').forEach(btn => {
-    const cur = state.filter[btn.dataset.filterKey];
-    btn.classList.toggle('active', normalizeId(cur) === normalizeId(btn.dataset.filterValue));
+    const key = btn.dataset.filterKey;
+    const cur = state.filter[key];
+    const val = btn.dataset.filterValue;
+    // "全部" (empty value) is active when nothing is selected in that dimension
+    const active = val === ''
+      ? cur.length === 0
+      : cur.some(v => key === 'categoryID' ? normalizeId(v) === normalizeId(val) : v === val);
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
   });
   $$('#overlay [data-sort-key]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.sortKey === state.sort);
   });
+  const done = $('#sheet-done');
+  if (done) done.textContent = `完成 (${getFilteredItems().length})`;
 }
 
 // ===== Scroll persistence =====
@@ -1034,7 +1063,8 @@ async function handleClick(e) {
   if (chip && !e.target.closest('[data-action]')) {
     const key = chip.dataset.filterKey;
     const val = chip.dataset.filterValue;
-    state.filter[key] = val === '' ? null : val;
+    if (val === '') state.filter[key] = [];      // 全部 → clear this dimension
+    else toggleFilterValue(key, val);            // multi-select toggle
     syncSheetChips();
     return;
   }
@@ -1093,17 +1123,12 @@ async function handleClick(e) {
       break;
 
     case 'remove-filter':
-      state.filter[target.dataset.key] = null;
+      toggleFilterValue(target.dataset.key, target.dataset.value);
       renderApp();
       break;
 
     case 'clear-filter':
-      state.filter.season = null;
-      state.filter.categoryID = null;
-      state.filter.status = null;
-      state.filter.brand = null;
-      state.filter.style = null;
-      state.filter.search = '';
+      clearAllFilters();
       if (isOverlayActive()) { syncSheetChips(); }
       else renderApp();
       break;

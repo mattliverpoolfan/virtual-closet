@@ -614,6 +614,7 @@ ul { list-style: none; }
   letter-spacing: 0.4px;
   padding-left: 2px;
 }
+.multi-hint { font-size: 11px; color: var(--text-3); margin-left: 6px; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   min-height: 36px;
